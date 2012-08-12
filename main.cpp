@@ -231,7 +231,7 @@ static void* soakfs_init(fuse_conn_info*) {
 }
 
 // HACK ALERT:
-// When fuse is run in background mode/deamonized, crossing the threshold of
+// When fuse is run in background mode/daemonized, crossing the threshold of
 // fuse_main blocks all active threads. This requires that any new threads are
 // created only after fuse_ops's init function is called. In our case, this is
 // an unfortunate design decision, as cpp-netlib maintains an internal thread
