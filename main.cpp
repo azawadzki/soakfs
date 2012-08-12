@@ -218,14 +218,36 @@ static void soakfs_destroy(void*) {
     delete soakfs_get_fs();
 }
 
+typedef std::pair<std::string, std::string> creds_pair;
+
+static void* soakfs_init(fuse_conn_info*) {
+    assert(fuse_get_context());
+    std::unique_ptr<creds_pair> p { reinterpret_cast<creds_pair*>(fuse_get_context()->private_data) };
+    try {
+        return new SoakFS { p->first, p->second };
+    } catch (const soak::AuthException &e) {
+        exit(1);
+    }
+}
+
+// HACK ALERT:
+// When fuse is run in background mode/deamonized, crossing the threshold of
+// fuse_main blocks all active threads. This requires that any new threads are
+// created only after fuse_ops's init function is called. In our case, this is
+// an unfortunate design decision, as cpp-netlib maintains an internal thread
+// pool which is being used from the start when creating SoakFS objects. Due to
+// all that, SoakFS objects are created twice:
+// 1) in main, to check user credentials after application start;
+// 2) in soakfs_init, to provice the actual fs implementation.
+// Proper solution would be to either dump cpp-netlib or add explicit
+// credentials checking functionality outside current SoakFS object.
 int main(int argc, char *argv[]) {
     std::string username;
     std::cout << "Username: ";
     std::cin >> username;
     std::string password { getpass("Password: ") };
-    SoakFS *fs { nullptr };
     try {
-        fs = new SoakFS { username, password };
+        std::unique_ptr<SoakFS> test_creds_fs { new SoakFS { username, password } };
     } catch (const soak::AuthException &e) {
         std::cout << "Unable to login" << std::endl;
         return EXIT_FAILURE;
@@ -236,7 +258,8 @@ int main(int argc, char *argv[]) {
     soakfs_ops.open       = soakfs_open;
     soakfs_ops.read       = soakfs_read;
     soakfs_ops.destroy    = soakfs_destroy;
+    soakfs_ops.init       = soakfs_init;
 
-    return fuse_main(argc, argv, &soakfs_ops, fs);
+    return fuse_main(argc, argv, &soakfs_ops, new creds_pair(username, password));
 }
 
