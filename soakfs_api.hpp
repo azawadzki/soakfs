@@ -57,19 +57,22 @@ class AuthException : public std::exception {
 
 };
 
-
 class DownloadPolicyCppLib {
 
 public:
 
     DownloadPolicyCppLib(const std::string &username, const std::string &password)
-    : m_user_creds(http_auth_creds(username, password)) {
+    : m_client(new http::client)
+    , m_user_creds(http_auth_creds(username, password)) {
 
     }
 
 protected:
 
     void load(const std::string &url, std::ostream &out, std::pair<long, long> range) {
+        if (m_client.get() == nullptr) {
+            m_client.reset(new http::client);
+        }
         client::request req { url };
         req << header("Authorization", m_user_creds);
         if (range.first != UNINITIALIZED || range.second != UNINITIALIZED) {
@@ -84,7 +87,7 @@ protected:
             }
             req << header("Range", r.str());
         }
-        client::response resp { m_client.get(req) };
+        client::response resp { m_client->get(req) };
         if (resp.status() == 401) {
             throw AuthException();
         }
@@ -93,6 +96,10 @@ protected:
 
     void load(const std::string &url, std::ostream &out) {
         load(url, out, std::make_pair(UNINITIALIZED, UNINITIALIZED));
+    }
+
+    void kill_running_threads() {
+        m_client.reset(nullptr);
     }
 
 private:
@@ -111,7 +118,7 @@ private:
     }
 
     std::string m_user_creds;
-    http::client m_client;
+    std::unique_ptr<http::client> m_client;
 };
 
 template<typename DownloadPolicy>
@@ -165,6 +172,10 @@ public:
             }
         }
         return std::make_pair(std::move(dirs), std::move(files));
+    }
+
+    void kill_running_threads() {
+        DownloadPolicy::kill_running_threads();
     }
 
 private:

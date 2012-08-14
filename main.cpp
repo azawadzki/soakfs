@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <memory>
 #include <mutex>
 
 #include <errno.h>
@@ -129,6 +130,10 @@ public:
         }
     }
 
+    void kill_running_threads() {
+        m_storage->kill_running_threads();
+    }
+
 private:
 
     const soak::File& get_file_data(const std::string &file) {
@@ -218,18 +223,6 @@ static void soakfs_destroy(void*) {
     delete soakfs_get_fs();
 }
 
-typedef std::pair<std::string, std::string> creds_pair;
-
-static void* soakfs_init(fuse_conn_info*) {
-    assert(fuse_get_context());
-    std::unique_ptr<creds_pair> p { reinterpret_cast<creds_pair*>(fuse_get_context()->private_data) };
-    try {
-        return new SoakFS { p->first, p->second };
-    } catch (const soak::AuthException &e) {
-        exit(1);
-    }
-}
-
 // HACK ALERT:
 // When fuse is run in background mode/daemonized, crossing the threshold of
 // fuse_main blocks all active threads. This requires that any new threads are
@@ -246,8 +239,10 @@ int main(int argc, char *argv[]) {
     std::cout << "Username: ";
     std::cin >> username;
     std::string password { getpass("Password: ") };
+    std::unique_ptr<SoakFS> fs;
     try {
-        std::unique_ptr<SoakFS> test_creds_fs { new SoakFS { username, password } };
+        fs.reset(new SoakFS { username, password });
+        fs->kill_running_threads();
     } catch (const soak::AuthException &e) {
         std::cout << "Unable to login" << std::endl;
         return EXIT_FAILURE;
@@ -258,8 +253,7 @@ int main(int argc, char *argv[]) {
     soakfs_ops.open       = soakfs_open;
     soakfs_ops.read       = soakfs_read;
     soakfs_ops.destroy    = soakfs_destroy;
-    soakfs_ops.init       = soakfs_init;
 
-    return fuse_main(argc, argv, &soakfs_ops, new creds_pair(username, password));
+    return fuse_main(argc, argv, &soakfs_ops, fs.release());
 }
 
