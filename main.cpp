@@ -223,17 +223,6 @@ static void soakfs_destroy(void*) {
     delete soakfs_get_fs();
 }
 
-// HACK ALERT:
-// When fuse is run in background mode/daemonized, crossing the threshold of
-// fuse_main blocks all active threads. This requires that any new threads are
-// created only after fuse_ops's init function is called. In our case, this is
-// an unfortunate design decision, as cpp-netlib maintains an internal thread
-// pool which is being used from the start when creating SoakFS objects. Due to
-// all that, SoakFS objects are created twice:
-// 1) in main, to check user credentials after application start;
-// 2) in soakfs_init, to provice the actual fs implementation.
-// Proper solution would be to either dump cpp-netlib or add explicit
-// credentials checking functionality outside current SoakFS object.
 int main(int argc, char *argv[]) {
     std::string username;
     std::cout << "Username: ";
@@ -242,6 +231,14 @@ int main(int argc, char *argv[]) {
     std::unique_ptr<SoakFS> fs;
     try {
         fs.reset(new SoakFS { username, password });
+        // HACK ALERT:
+        // When fuse is run in background mode/daemonized, crossing the threshold of
+        // fuse_main blocks all active threads. This requires that any new threads are
+        // created only after fuse_ops's init function is called. In our case, this is
+        // an unfortunate design decision, as cpp-netlib maintains an internal thread
+        // pool which is being used from the start when creating SoakFS objects. 
+        // Long story short: we need to kill all active threads by deleting
+        // http::client and hope for the best.
         fs->kill_running_threads();
     } catch (const soak::AuthException &e) {
         std::cout << "Unable to login" << std::endl;
